@@ -10,6 +10,28 @@ public sealed class GitHubOptions
 }
 public sealed class GitWorkspace(BoundedProcess process, IOptions<GitHubOptions> options)
 {
+    public async Task InitializeEmptyAsync(string repositoryUrl, string baseBranch, CancellationToken ct)
+    {
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(repositoryUrl))).ToLowerInvariant();
+        var root = Path.Combine(Path.GetFullPath(options.Value.WorkspaceRoot), "initialization", key);
+        Directory.CreateDirectory(root);
+        FileStream repositoryLock;
+        try { repositoryLock = new FileStream(Path.Combine(root, "initialization.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+        catch (IOException) { throw new SourceControlException("Repository initialization is already running. Retry verification shortly."); }
+        using (repositoryLock)
+        {
+            // Include tags and every advertised ref: a missing base branch alone never authorizes initialization.
+            if (!string.IsNullOrWhiteSpace(await GitAsync(root, ct, "ls-remote", "--", repositoryUrl))) return;
+            var source = Path.Combine(root, Guid.NewGuid().ToString("N"));
+            await GitAsync(root, ct, "init", "--initial-branch=" + baseBranch, source);
+            await File.WriteAllTextAsync(Path.Combine(source, "README.md"), "# Project\n\nInitialized by Buildra. Implementation changes are delivered through reviewed pull requests.\n", ct);
+            await GitAsync(source, ct, "add", "--", "README.md");
+            await GitAsync(source, ct, "-c", "user.name=Buildra", "-c", "user.email=buildra@localhost", "commit", "--no-gpg-sign", "-m", "Initialize repository with Buildra");
+            await GitAsync(source, ct, "remote", "add", "origin", repositoryUrl);
+            // A normal push rejects a competing, unrelated initial commit; existing history is never replaced.
+            await GitAsync(source, ct, "push", "origin", "HEAD:refs/heads/" + baseBranch);
+        }
+    }
     public async Task<TaskWorkspace> PrepareAsync(string repositoryUrl, string baseBranch, Guid taskId, CancellationToken ct)
     {
         var root = Path.Combine(Path.GetFullPath(options.Value.WorkspaceRoot), taskId.ToString("N")); Directory.CreateDirectory(root);

@@ -63,9 +63,9 @@ PostgreSQL tests create randomly named isolated databases and drop only those da
 
 ## Code execution
 
-Git and Docker must be installed on the worker machine. Sign into GitHub using Git Credential Manager for HTTPS Git operations; Buildra retrieves the cached credential in memory for GitHub REST calls. The account must have repository write access and permission to create pull requests. An empty repository needs an initial commit and the configured base branch before verification succeeds. No GitHub credentials go into project settings or model prompts.
+Git and Docker must be installed on the worker machine. Sign into GitHub using Git Credential Manager for HTTPS Git operations; Buildra retrieves the cached credential in memory for GitHub REST calls. The account must have repository write access and permission to create pull requests. Verification automatically initializes a truly empty repository with a README commit on the configured base branch. Existing repositories must already contain the configured base branch; Buildra never replaces existing history. No GitHub credentials go into project settings or model prompts.
 
-1. Open the project and click **Verify repository**.
+1. Open the project and click **Verify repository**. Empty repositories receive their first README commit automatically.
 2. Send a specific request to the PM and respond to any clarification.
 3. Click **Start implementation** on a Ready task. Optional **Automatically implement planned tasks** in project settings queues subsequent tasks after repository verification.
 4. Inspect implementation history for runs, tests, review feedback, branch, and commit. Successful review publishes a task branch and opens a PR; merging remains a manual GitHub action.

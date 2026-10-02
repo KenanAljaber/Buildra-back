@@ -80,6 +80,40 @@ public sealed partial class PlanningPostgresTests
     }
     private static AgentAction Action(string name, string path = "", string content = "", string summary = "") => new(name, path, content, "", summary);
 
+    [Fact]
+    public async Task EmptyRepositoryGetsOneInitialCommitAndSupportsTaskCheckout()
+    {
+        await using var repo = new LocalRepository();
+        await repo.Git.GitAsync(repo.Root, default, "init", "--bare", "--initial-branch=main", repo.Remote);
+        await repo.Git.InitializeEmptyAsync(repo.Remote, "main", default);
+        var first = await repo.Git.GitAsync(repo.Remote, default, "rev-parse", "refs/heads/main");
+        Assert.Contains("Initialized by Buildra", await repo.Git.GitAsync(repo.Remote, default, "show", "main:README.md"));
+        await repo.Git.InitializeEmptyAsync(repo.Remote, "main", default);
+        Assert.Equal(first, await repo.Git.GitAsync(repo.Remote, default, "rev-parse", "refs/heads/main"));
+        var workspace = await repo.Git.PrepareAsync(repo.Remote, "main", Guid.NewGuid(), default);
+        using (workspace.Lock) Assert.True(File.Exists(Path.Combine(workspace.SourceDirectory, "README.md")));
+    }
+
+    [Fact]
+    public async Task MissingBaseInExistingRepositoryIsNotInitialized()
+    {
+        await using var repo = new LocalRepository(); await repo.InitializeAsync();
+        var before = await repo.Git.GitAsync(repo.Root, default, "ls-remote", repo.Remote);
+        await repo.Git.InitializeEmptyAsync(repo.Remote, "new-base", default);
+        Assert.Equal(before, await repo.Git.GitAsync(repo.Root, default, "ls-remote", repo.Remote));
+    }
+
+    [Fact]
+    public async Task RepositoryWithOnlyTagsIsNotInitialized()
+    {
+        await using var repo = new LocalRepository(); await repo.InitializeAsync();
+        await repo.Git.GitAsync(repo.Remote, default, "tag", "v1", "main");
+        await repo.Git.GitAsync(repo.Remote, default, "update-ref", "-d", "refs/heads/main");
+        var before = await repo.Git.GitAsync(repo.Root, default, "ls-remote", repo.Remote);
+        await repo.Git.InitializeEmptyAsync(repo.Remote, "main", default);
+        Assert.Equal(before, await repo.Git.GitAsync(repo.Root, default, "ls-remote", repo.Remote));
+    }
+
     private sealed class TestCredential : IGitHubCredentialSource
     {
         public Task<string> GetAsync(CancellationToken ct) => Task.FromResult("test-secret-token");
@@ -104,6 +138,7 @@ public sealed partial class PlanningPostgresTests
             }
             var content = request.RequestUri.AbsolutePath.EndsWith("/pulls")
                 ? existingPr ? "[{\"html_url\":\"https://github.com/test/repo/pull/1\"}]" : "[]"
+                : request.RequestUri.AbsolutePath.EndsWith("/branches") ? "[{\"name\":\"main\"}]"
                 : request.RequestUri.AbsolutePath.Contains("/branches/") ? "{}"
                 : "{\"id\":1,\"full_name\":\"test/repo\",\"default_branch\":\"main\",\"archived\":false,\"permissions\":{\"push\":true}}";
             return new(System.Net.HttpStatusCode.OK) { Content = new StringContent(content) };

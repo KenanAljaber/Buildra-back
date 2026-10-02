@@ -24,7 +24,7 @@ public sealed class GitHubSourceControlProvider(HttpClient http, IGitHubCredenti
         request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
         if (payload is not null) request.Content = JsonContent.Create(payload);
         using var response = await http.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode) throw new SourceControlException($"GitHub returned HTTP {(int)response.StatusCode}. Check repository access, branch existence, and pull-request permission. Empty repositories need an initial commit first.");
+        if (!response.IsSuccessStatusCode) throw new SourceControlException($"GitHub returned HTTP {(int)response.StatusCode}. Check repository access, the configured base branch, and pull-request permission.");
         return await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
     }
     public async Task<RepositoryMetadata> VerifyAsync(Project project, CancellationToken ct)
@@ -33,6 +33,9 @@ public sealed class GitHubSourceControlProvider(HttpClient http, IGitHubCredenti
         using var response = await SendAsync(HttpMethod.Get, "repos/" + repository, null, ct); var root = response.RootElement;
         if (root.GetProperty("archived").GetBoolean() || !root.TryGetProperty("permissions", out var permissions) || !permissions.GetProperty("push").GetBoolean())
             throw new SourceControlException("This GitHub account needs write access to a non-archived repository.");
+        using var branches = await SendAsync(HttpMethod.Get, "repos/" + repository + "/branches?per_page=1", null, ct);
+        if (branches.RootElement.GetArrayLength() == 0)
+            await git.InitializeEmptyAsync(project.RepositoryUrl, project.DefaultBranch, ct);
         using var branch = await SendAsync(HttpMethod.Get, "repos/" + repository + "/branches/" + Uri.EscapeDataString(project.DefaultBranch), null, ct);
         return new(root.GetProperty("id").GetInt64(), root.GetProperty("full_name").GetString()!, root.GetProperty("default_branch").GetString()!);
     }
