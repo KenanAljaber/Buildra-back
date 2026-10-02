@@ -15,7 +15,7 @@ dotnet run --project src/Buildra.Api --no-launch-profile
 
 API: http://127.0.0.1:5080. Health endpoint: `/health` (process health only). The frontend runs separately from Buildra-front.
 
-`--migrate` applies committed EF migrations and seeds one local organization and local owner, then exits. The checked-in database password is exclusively for local development. Override `ConnectionStrings__Buildra` and the Compose `POSTGRES_PASSWORD` together if changing it.
+`--migrate` applies committed EF migrations and seeds one local organization and local owner, then exits. PostgreSQL is exposed on loopback port 55432 to avoid conflicts with existing PostgreSQL installations. The checked-in database password is exclusively for local development. Override `ConnectionStrings__Buildra` and the Compose `POSTGRES_PASSWORD` together if changing it.
 
 ## API
 
@@ -37,7 +37,7 @@ dotnet test
 dotnet ef migrations has-pending-model-changes --project src/Buildra.Infrastructure --startup-project src/Buildra.Api
 ```
 
-Tests cover domain lifecycle, role permissions, repository input validation, architecture dependencies, and HTTP project CRUD with tenant scoping. API tests use EF InMemory; real PostgreSQL verification is still required. Domain permissions are defined and tested, but tool dispatch does not exist yet.
+Tests cover domain lifecycle, role permissions, repository input validation, architecture dependencies, and HTTP project CRUD with tenant scoping. API tests use EF InMemory; live PostgreSQL project create/read/update/delete and migration were also verified locally. Domain permissions are defined and tested, but tool dispatch does not exist yet.
 
 ## Current milestone and next work
 
@@ -46,3 +46,4 @@ Delivered: project CRUD, organization/user basics, core entity schema, initial m
 Next: model provider implementation and runtime; GitHub credentials and repository/worktree adapter; durable worker jobs; PM → Developer → Reviewer orchestration; persisted chat and SignalR; retries, cancellation, tool sandboxing, and PostgreSQL/Git integration tests.
 
 The worker host is intentionally idle until durable execution is implemented. No agent execution, model calls, automatic PR creation, production authentication, or SignalR hub is implemented in this milestone.
+

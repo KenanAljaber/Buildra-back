@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: buildra
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-buildra_local}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:55432:5432"
     volumes:
       - buildra_postgres:/var/lib/postgresql/data
     healthcheck:
