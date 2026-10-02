@@ -21,6 +21,7 @@ public sealed class BuildraDbContext(DbContextOptions<BuildraDbContext> options)
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<Decision> Decisions => Set<Decision>();
+    public DbSet<PlanningRequest> PlanningRequests => Set<PlanningRequest>();
     protected override void OnModelCreating(ModelBuilder m)
     {
         m.Entity<ProjectAgent>().HasKey(x => new { x.ProjectId, x.AgentDefinitionId });
@@ -33,11 +34,18 @@ public sealed class BuildraDbContext(DbContextOptions<BuildraDbContext> options)
         m.Entity<ProjectAgent>().HasOne<AgentDefinition>().WithMany().HasForeignKey(x => x.AgentDefinitionId);
         m.Entity<DevelopmentTask>().HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId);
         m.Entity<AgentRun>().HasOne<DevelopmentTask>().WithMany().HasForeignKey(x => x.TaskId);
+        m.Entity<AgentRun>().HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId);
+        m.Entity<PlanningRequest>().HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId);
+        m.Entity<PlanningRequest>().HasOne<AgentRun>().WithMany().HasForeignKey(x => x.AgentRunId);
+        m.Entity<PlanningRequest>().HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId);
+        m.Entity<PlanningRequest>().HasOne<Message>().WithMany().HasForeignKey(x => x.MessageId);
+        m.Entity<PlanningRequest>().HasIndex(x => x.AgentRunId).IsUnique();
+        m.Entity<PlanningRequest>().HasIndex(x => new { x.Status, x.CreatedAt });
         m.Entity<AgentRun>().HasOne<AgentDefinition>().WithMany().HasForeignKey(x => x.AgentDefinitionId).OnDelete(DeleteBehavior.Restrict);
         m.Entity<Review>().HasOne<DevelopmentTask>().WithMany().HasForeignKey(x => x.TaskId);
         m.Entity<Review>().HasOne<AgentDefinition>().WithMany().HasForeignKey(x => x.ReviewerAgentId).OnDelete(DeleteBehavior.Restrict);
         m.Entity<Conversation>().HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId);
-        m.Entity<Conversation>().HasOne<DevelopmentTask>().WithMany().HasForeignKey(x => x.TaskId).OnDelete(DeleteBehavior.Restrict);
+        m.Entity<Conversation>().HasOne<DevelopmentTask>().WithMany().HasForeignKey(x => x.TaskId);
         m.Entity<Message>().HasOne<Conversation>().WithMany().HasForeignKey(x => x.ConversationId);
         m.Entity<Message>().HasIndex(x => new { x.ConversationId, x.CreatedAt });
         m.Entity<WorkflowEvent>().HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId);

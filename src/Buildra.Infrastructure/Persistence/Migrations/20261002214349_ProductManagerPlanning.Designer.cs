@@ -3,6 +3,7 @@ using System;
 using Buildra.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Buildra.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(BuildraDbContext))]
-    partial class BuildraDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002214349_ProductManagerPlanning")]
+    partial class ProductManagerPlanning
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -77,7 +80,7 @@ namespace Buildra.Infrastructure.Persistence.Migrations
                     b.Property<string>("Error")
                         .HasColumnType("text");
 
-                    b.Property<decimal?>("EstimatedCost")
+                    b.Property<decimal>("EstimatedCost")
                         .HasPrecision(18, 8)
                         .HasColumnType("numeric(18,8)");
 

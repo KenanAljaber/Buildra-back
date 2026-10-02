@@ -3,6 +3,9 @@ using Buildra.Application.Projects;
 using Buildra.Infrastructure.Persistence;
 using Buildra.Infrastructure.Projects;
 using Microsoft.EntityFrameworkCore;
+using Buildra.Api.Planning;
+using Buildra.Application.Planning;
+using Buildra.Infrastructure.Planning;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://127.0.0.1:5080");
@@ -11,6 +14,8 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDbContext<BuildraDbContext>(o => o.UseNpgsql(builder.Configuration.GetConnectionString("Buildra")));
 builder.Services.AddScoped<IProjectStore, EfProjectStore>();
 builder.Services.AddScoped<ProjectUseCases>();
+builder.Services.AddScoped<IPlanningStore, EfPlanningStore>();
+builder.Services.AddScoped<PlanningUseCases>();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod()));
 var app = builder.Build();
 app.UseExceptionHandler();
@@ -18,6 +23,7 @@ app.UseCors();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", milestone = "foundation" }));
 // Local-only identity. Remote deployment requires authentication and tenant resolution.
 var organizationId = Guid.Parse("11111111-1111-1111-1111-111111111111");
+app.MapPlanningEndpoints(organizationId);
 app.MapGet("/api/projects", (ProjectUseCases useCases, CancellationToken ct) => useCases.ListAsync(organizationId, ct));
 app.MapGet("/api/projects/{id:guid}", async (Guid id, ProjectUseCases useCases, CancellationToken ct) =>
     await useCases.GetAsync(organizationId, id, ct) is { } project ? Results.Ok(project) : Results.NotFound());

@@ -1,11 +1,21 @@
+using Buildra.Application.Planning;
 namespace Buildra.Worker;
 
-// Foundation host only. Durable job claiming and agent execution belong to milestone 4.
-public sealed class Worker(ILogger<Worker> logger) : BackgroundService
+public sealed class Worker(IServiceScopeFactory scopes, ILogger<Worker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        logger.LogInformation("Buildra worker foundation ready. Agent execution is not configured.");
-        await Task.Delay(Timeout.Infinite, stoppingToken);
+        logger.LogInformation("Buildra PM worker started.");
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                using var scope = scopes.CreateScope();
+                if (await scope.ServiceProvider.GetRequiredService<ExecutePlanningJob>().ExecuteNextAsync(stoppingToken)) continue;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+            catch { logger.LogWarning("Worker persistence is unavailable. Retrying shortly."); }
+            await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+        }
     }
 }

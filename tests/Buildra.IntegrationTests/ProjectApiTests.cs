@@ -37,6 +37,13 @@ public sealed class ProjectApiTests
         var update = await client.PutAsJsonAsync($"/api/projects/{project.Id}", input with { Name = "Updated" });
         Assert.Equal(HttpStatusCode.OK, update.StatusCode);
         Assert.Equal("Updated", (await client.GetFromJsonAsync<ProjectDetails>($"/api/projects/{project.Id}", options))!.Project.Name);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync($"/api/projects/{project.Id}/planning/requests", new { content = "" })).StatusCode);
+        var queued = await client.PostAsJsonAsync($"/api/projects/{project.Id}/planning/requests", new { content = "Add project search" });
+        Assert.Equal(HttpStatusCode.Accepted, queued.StatusCode);
+        var workspace = await client.GetFromJsonAsync<Buildra.Application.Planning.PlanningWorkspace>($"/api/projects/{project.Id}/planning/", options);
+        Assert.Equal(Buildra.Domain.Agents.AgentRunStatus.Queued, Assert.Single(workspace!.Runs).Status);
+        Assert.Single(workspace.Messages);
+        Assert.Empty(workspace.Tasks);
         using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<BuildraDbContext>();
@@ -45,6 +52,8 @@ public sealed class ProjectApiTests
             await db.SaveChangesAsync();
             Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/projects/{foreign.Id}")).StatusCode);
             Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/projects/{foreign.Id}")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync($"/api/projects/{foreign.Id}/planning/")).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync($"/api/projects/{foreign.Id}/planning/requests", new { content = "Request" })).StatusCode);
         }
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/projects", input with { Name = "" })).StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, (await client.DeleteAsync($"/api/projects/{project.Id}")).StatusCode);

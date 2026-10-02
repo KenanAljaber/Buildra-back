@@ -1,6 +1,6 @@
 # Buildra backend
 
-Foundation milestone: .NET 10 modular monolith with Domain → Application boundaries, PostgreSQL/EF Core infrastructure, an ASP.NET Core API, and a separate worker host.
+.NET 10 modular monolith with PostgreSQL/EF Core, a local ASP.NET Core API, and a separate PM worker. `main` holds the base application; `dev` is the integration branch; `feature/pm-request-to-task` adds the first agent workflow.
 
 ## Local startup
 
@@ -13,37 +13,50 @@ dotnet run --project src/Buildra.Api --no-launch-profile -- --migrate
 dotnet run --project src/Buildra.Api --no-launch-profile
 ```
 
-API: http://127.0.0.1:5080. Health endpoint: `/health` (process health only). The frontend runs separately from Buildra-front.
+API: http://127.0.0.1:5080. PostgreSQL: loopback port 55432. `/health` checks process health. The migration command applies schema changes and seeds a local organization and owner, then exits.
 
-`--migrate` applies committed EF migrations and seeds one local organization and local owner, then exits. PostgreSQL is exposed on loopback port 55432 to avoid conflicts with existing PostgreSQL installations. The checked-in database password is exclusively for local development. Override `ConnectionStrings__Buildra` and the Compose `POSTGRES_PASSWORD` together if changing it.
+In another terminal, configure the worker's OpenAI key outside the repository and start it:
 
-## API
+```powershell
+dotnet user-secrets set 'OpenAI:ApiKey' '<your-api-key>' --project src/Buildra.Worker
+$env:DOTNET_ENVIRONMENT = 'Development'
+dotnet run --project src/Buildra.Worker --no-launch-profile
+```
 
-- `GET /api/projects`
-- `POST /api/projects`
-- `GET /api/projects/{id}` — project and assigned team
-- `PUT /api/projects/{id}`
-- `DELETE /api/projects/{id}`
+`OPENAI_API_KEY` in the worker environment is also supported. Never paste a key into chat or commit it to Git. The API does not need the model key. User secrets load in Development; environment variables work in either environment.
 
-Project input: name, description, repositoryUrl, defaultBranch, instructions. Only HTTPS GitHub repository URLs are accepted. Creating a project atomically persists three agent definitions, assignments, a project conversation, and a creation event. Agent definitions remain organization-owned after project deletion.
+`OpenAI:StrongReasoningModel` defaults to `gpt-4.1-mini` and can be changed in worker configuration. The adapter uses OpenAI's Responses API with strict structured outputs and `store=false`: https://developers.openai.com/api/docs/guides/structured-outputs.
 
-The API binds to loopback with a fixed local identity. Authentication and trusted tenant resolution must be implemented before network deployment. The repository URL is metadata only; GitHub access is not yet verified.
+Optional `OpenAI:InputCostPerMillionTokens` and `OpenAI:OutputCostPerMillionTokens` allow an estimated cost in the same currency as those rates. Unconfigured cost is null, not zero. Estimates use full input/output token counts without cached-input discounts and describe the latest attempt, not an invoice. Configure current rates for your chosen model; rates are not hard-coded.
+
+The checked-in PostgreSQL credentials are for local development. Override `ConnectionStrings__Buildra` on both API and worker together with Compose `POSTGRES_PASSWORD` if changing them. The API has a fixed local identity and binds to loopback; remote deployment requires authentication and trusted tenant resolution.
+
+## API and behavior
+
+- `GET/POST /api/projects`
+- `GET/PUT/DELETE /api/projects/{id}`
+- `GET /api/projects/{id}/planning/` — recent persisted messages, tasks, and runs
+- `POST /api/projects/{id}/planning/requests` with `{ "content": "..." }` — returns HTTP 202 and queues the PM run
+- `POST /api/projects/{id}/planning/runs/{runId}/retry` — retries a failed run
+
+Project creation atomically saves PM/Developer/Reviewer definitions and assignments, project conversation, and creation event. Project deletion removes its data; agent definitions remain organization-owned.
+
+The worker atomically claims PostgreSQL queue rows, with a five-minute lease and a two-minute HTTP timeout. Short claim transactions are serialized and only one request per project runs at a time. A crashed worker's lease is reclaimed; fencing tokens reject stale results. Task creation, PM response, run completion, and workflow event commit together. Results are at least once at the model-call boundary; interrupted model requests may incur usage again.
+
+A valid plan creates one Ready task with measurable acceptance criteria. Clarification returns an Action Required message without inventing a task; the user responds by sending another request. Provider failures are persisted with safe messages and a retry action. Retrying reuses the request and run, preserving the user message; run usage reflects the latest returned response. The PM has no shell or repository tools and cannot claim to have inspected code.
 
 ## Validation
 
 ```powershell
 dotnet build
 dotnet test
+$env:BUILDRA_TEST_POSTGRES = 'Host=localhost;Port=55432;Database=postgres;Username=buildra;Password=buildra_local'
+dotnet test tests/Buildra.IntegrationTests
 dotnet ef migrations has-pending-model-changes --project src/Buildra.Infrastructure --startup-project src/Buildra.Api
 ```
 
-Tests cover domain lifecycle, role permissions, repository input validation, architecture dependencies, and HTTP project CRUD with tenant scoping. API tests use EF InMemory; live PostgreSQL project create/read/update/delete and migration were also verified locally. Domain permissions are defined and tested, but tool dispatch does not exist yet.
+PostgreSQL tests create randomly named isolated databases and drop only those databases afterward. They exercise task persistence, clarification, failure/retry, queue concurrency, expired leases, stale-worker rejection, permission checks, and invalid model output. Without the test connection, PostgreSQL cases are explicitly skipped. HTTP tests use EF InMemory. OpenAI contract tests use fake HTTP responses; planning tests use a deterministic test provider, with no paid model calls.
 
-## Current milestone and next work
+## Remaining work
 
-Delivered: project CRUD, organization/user basics, core entity schema, initial migration, three agent templates, provider contract, worker host, and React integration.
-
-Next: model provider implementation and runtime; GitHub credentials and repository/worktree adapter; durable worker jobs; PM → Developer → Reviewer orchestration; persisted chat and SignalR; retries, cancellation, tool sandboxing, and PostgreSQL/Git integration tests.
-
-The worker host is intentionally idle until durable execution is implemented. No agent execution, model calls, automatic PR creation, production authentication, or SignalR hub is implemented in this milestone.
-
+GitHub verification and credentials; repository/worktree adapter; Developer/Reviewer execution; PR creation; fuller agent configuration; direct and task chat UI; SignalR realtime updates; cancellation and budgets. The current UI polls persisted state every two seconds. Real OpenAI calls require a valid local API key and model access; these are not verified by the deterministic tests.

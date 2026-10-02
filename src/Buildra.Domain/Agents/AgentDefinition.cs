@@ -51,14 +51,14 @@ public sealed class AgentRun
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid AgentDefinitionId { get; set; }
     public Guid ProjectId { get; set; }
-    public Guid TaskId { get; set; }
+    public Guid? TaskId { get; set; }
     public AgentRunStatus Status { get; set; }
     public DateTimeOffset? StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public string Model { get; set; } = "";
     public int InputTokens { get; set; }
     public int OutputTokens { get; set; }
-    public decimal EstimatedCost { get; set; }
+    public decimal? EstimatedCost { get; set; }
     public string? Result { get; set; }
     public string? Error { get; set; }
 }
