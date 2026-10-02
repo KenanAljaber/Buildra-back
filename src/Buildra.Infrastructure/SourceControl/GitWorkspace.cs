@@ -1,0 +1,56 @@
+using Buildra.Application.Execution;
+using Buildra.Application.SourceControl;
+using Buildra.Infrastructure.Execution;
+using Microsoft.Extensions.Options;
+namespace Buildra.Infrastructure.SourceControl;
+
+public sealed class GitHubOptions
+{
+    public string WorkspaceRoot { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Buildra", "workspaces");
+}
+public sealed class GitWorkspace(BoundedProcess process, IOptions<GitHubOptions> options)
+{
+    public async Task<TaskWorkspace> PrepareAsync(string repositoryUrl, string baseBranch, Guid taskId, CancellationToken ct)
+    {
+        var root = Path.Combine(Path.GetFullPath(options.Value.WorkspaceRoot), taskId.ToString("N")); Directory.CreateDirectory(root);
+        FileStream taskLock;
+        try { taskLock = new FileStream(Path.Combine(root, "execution.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+        catch (IOException) { throw new SourceControlException("This task workspace is already in use by another worker. Retry after it stops."); }
+        try
+        {
+            var source = Path.Combine(root, "source"); var branch = "buildra/task-" + taskId.ToString("N");
+            var baseFile = Path.Combine(root, "base.commit");
+            if (!Directory.Exists(Path.Combine(root, "control.git")))
+            {
+                await GitAsync(root, ct, "clone", "--no-checkout", "--separate-git-dir", Path.Combine(root, "control.git"), "--", repositoryUrl, source);
+                await GitAsync(source, ct, "switch", "-c", branch, "origin/" + baseBranch);
+                await File.WriteAllTextAsync(baseFile, (await GitAsync(source, ct, "rev-parse", "HEAD")).Trim(), ct);
+            }
+            if (!File.Exists(baseFile)) throw new SourceControlException("Workspace preparation was interrupted. Create a new task to preserve the incomplete workspace for inspection.");
+            var remote = (await GitAsync(source, ct, "remote", "get-url", "origin")).Trim();
+            if (remote != repositoryUrl) throw new SourceControlException("This workspace belongs to a different repository. Create a new task for the updated repository.");
+            var actual = (await GitAsync(source, ct, "branch", "--show-current")).Trim();
+            if (actual != branch) throw new SourceControlException("The task branch changed outside Buildra. Inspect the workspace before retrying.");
+            return new(root, source, branch, (await File.ReadAllTextAsync(baseFile, ct)).Trim(), taskLock);
+        }
+        catch { taskLock.Dispose(); throw; }
+    }
+    public async Task<string> GitAsync(string directory, CancellationToken ct, params string[] args)
+    {
+        var noHooks = Path.Combine(Path.GetFullPath(options.Value.WorkspaceRoot), "no-hooks"); Directory.CreateDirectory(noHooks);
+        var result = await process.RunAsync("git", new[] { "-c", "core.hooksPath=" + noHooks, "-c", "core.autocrlf=false", "-c", "diff.external=", "-c", "core.fsmonitor=false" }.Concat(args), directory, ct);
+        if (result.ExitCode != 0) throw new SourceControlException("Git operation failed. Check repository access, the default branch, and workspace status.");
+        return result.Output;
+    }
+    public Task<string> DiffAsync(TaskWorkspace workspace, CancellationToken ct) => GitAsync(workspace.SourceDirectory, ct, "diff", "--no-ext-diff", "--no-textconv", workspace.BaseCommit, "--", ".");
+    public async Task<string> CommitAsync(TaskWorkspace workspace, string title, CancellationToken ct)
+    {
+        await GitAsync(workspace.SourceDirectory, ct, "add", "--", ".");
+        var status = await GitAsync(workspace.SourceDirectory, ct, "status", "--porcelain");
+        if (!string.IsNullOrWhiteSpace(status))
+            await GitAsync(workspace.SourceDirectory, ct, "-c", "user.name=Buildra", "-c", "user.email=buildra@localhost", "commit", "-m", title, "--no-gpg-sign");
+        var commit = (await GitAsync(workspace.SourceDirectory, ct, "rev-parse", "HEAD")).Trim();
+        if (commit == workspace.BaseCommit) throw new ExecutionException("The Developer produced no code changes.");
+        return commit;
+    }
+}

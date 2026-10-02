@@ -3,6 +3,7 @@ using System;
 using Buildra.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Buildra.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(BuildraDbContext))]
-    partial class BuildraDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002222523_GitHubCodeExecution")]
+    partial class GitHubCodeExecution
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -321,15 +324,11 @@ namespace Buildra.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("TestCommand")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("node --test");
+                        .HasColumnType("text");
 
                     b.Property<string>("TestImage")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("node:24-alpine");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 

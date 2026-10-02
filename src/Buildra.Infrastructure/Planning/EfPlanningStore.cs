@@ -18,7 +18,8 @@ public sealed class EfPlanningStore(BuildraDbContext db) : IPlanningStore
         var messages = await db.Messages.AsNoTracking().Where(m => conversations.Contains(m.ConversationId)).OrderByDescending(m => m.CreatedAt).Take(100).ToListAsync(ct);
         return new(messages.OrderBy(m => m.CreatedAt).ToList(),
             await db.Tasks.AsNoTracking().Where(t => t.ProjectId == projectId).OrderByDescending(t => t.CreatedAt).Take(100).ToListAsync(ct),
-            await db.AgentRuns.AsNoTracking().Where(r => r.ProjectId == projectId).OrderByDescending(r => r.StartedAt).Take(100).ToListAsync(ct));
+            await db.AgentRuns.AsNoTracking().Where(r => r.ProjectId == projectId).OrderByDescending(r => r.StartedAt).Take(100).ToListAsync(ct),
+            await db.ExecutionJobs.AsNoTracking().Where(j => j.ProjectId == projectId).OrderByDescending(j => j.CreatedAt).Take(100).ToListAsync(ct));
     }
 
     public async Task<AgentRun?> EnqueueAsync(Guid org, Guid projectId, Guid userId, string content, CancellationToken ct)
@@ -85,6 +86,7 @@ public sealed class EfPlanningStore(BuildraDbContext db) : IPlanningStore
     {
         await using var transaction = await db.Database.BeginTransactionAsync(ct);
         if (!await OwnLeaseAsync(job, ct)) return;
+        var currentProject = await db.Projects.FromSqlInterpolated($"SELECT * FROM \"Projects\" WHERE \"Id\" = {job.Project.Id} FOR UPDATE").AsNoTracking().SingleAsync(ct);
         var run = await db.AgentRuns.SingleAsync(r => r.Id == job.Request.AgentRunId, ct);
         if (!plan.NeedsClarification)
         {
@@ -92,6 +94,8 @@ public sealed class EfPlanningStore(BuildraDbContext db) : IPlanningStore
                 AcceptanceCriteria = string.Join("\n", plan.AcceptanceCriteria.Select(x => "- " + x)), CreatedBy = job.Agent.Id };
             task.TransitionTo(Buildra.Domain.Tasks.TaskStatus.Ready);
             db.Tasks.Add(task); run.TaskId = task.Id;
+            if (currentProject.AutoStartTasks && currentProject.RepositoryVerifiedAt is not null)
+                db.ExecutionJobs.Add(new() { ProjectId = task.ProjectId, TaskId = task.Id });
             db.Conversations.Add(new() { OrganizationId = job.Project.OrganizationId, ProjectId = job.Project.Id, TaskId = task.Id, Type = ConversationType.Task });
             db.WorkflowEvents.Add(new() { OrganizationId = job.Project.OrganizationId, ProjectId = job.Project.Id, TaskId = task.Id, EventType = "TaskCreated" });
         }

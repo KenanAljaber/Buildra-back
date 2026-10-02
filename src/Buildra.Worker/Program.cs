@@ -5,6 +5,7 @@ using Buildra.Infrastructure.Models;
 using Buildra.Infrastructure.Persistence;
 using Buildra.Infrastructure.Planning;
 using Microsoft.EntityFrameworkCore;
+using Buildra.Infrastructure.Execution;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddDbContext<BuildraDbContext>(o => o.UseNpgsql(builder.Configuration.GetConnectionString("Buildra")));
@@ -14,4 +15,7 @@ builder.Services.Configure<OpenAIOptions>(builder.Configuration.GetSection("Open
 builder.Services.PostConfigure<OpenAIOptions>(o => { if (string.IsNullOrWhiteSpace(o.ApiKey)) o.ApiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? ""; });
 builder.Services.AddHttpClient<IModelProvider, OpenAIModelProvider>(http => http.Timeout = TimeSpan.FromSeconds(120));
 builder.Services.AddHostedService<Worker>();
+builder.Services.AddBuildraExecution();
+builder.Services.AddScoped<Buildra.Application.Execution.ExecuteCodeWorkflow>();
+builder.Services.AddHostedService<ExecutionWorker>();
 await builder.Build().RunAsync();

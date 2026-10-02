@@ -6,7 +6,7 @@ using Buildra.Domain.Workflows;
 using Buildra.Application.Models;
 namespace Buildra.Application.Planning;
 
-public record PlanningWorkspace(IReadOnlyList<Message> Messages, IReadOnlyList<DevelopmentTask> Tasks, IReadOnlyList<AgentRun> Runs);
+public record PlanningWorkspace(IReadOnlyList<Message> Messages, IReadOnlyList<DevelopmentTask> Tasks, IReadOnlyList<AgentRun> Runs, IReadOnlyList<ExecutionJob>? ExecutionJobs = null);
 public record PlanningJob(PlanningRequest Request, AgentDefinition Agent, Project Project, string UserRequest, IReadOnlyList<Message> History);
 public interface IPlanningStore
 {

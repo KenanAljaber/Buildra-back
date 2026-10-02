@@ -16,7 +16,7 @@ public sealed class PostgreSqlFactAttribute : FactAttribute
     public PostgreSqlFactAttribute() { if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BUILDRA_TEST_POSTGRES"))) Skip = "Set BUILDRA_TEST_POSTGRES to run isolated PostgreSQL tests."; }
 }
 
-public sealed class PlanningPostgresTests : IAsyncLifetime
+public sealed partial class PlanningPostgresTests : IAsyncLifetime
 {
     private string? connectionString;
     private string? adminConnection;

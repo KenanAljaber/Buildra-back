@@ -22,10 +22,19 @@ public sealed class BuildraDbContext(DbContextOptions<BuildraDbContext> options)
     public DbSet<WorkflowEvent> WorkflowEvents => Set<WorkflowEvent>();
     public DbSet<Decision> Decisions => Set<Decision>();
     public DbSet<PlanningRequest> PlanningRequests => Set<PlanningRequest>();
+    public DbSet<ExecutionJob> ExecutionJobs => Set<ExecutionJob>();
+    public DbSet<ToolExecution> ToolExecutions => Set<ToolExecution>();
     protected override void OnModelCreating(ModelBuilder m)
     {
         m.Entity<ProjectAgent>().HasKey(x => new { x.ProjectId, x.AgentDefinitionId });
+        m.Entity<ExecutionJob>().HasOne<DevelopmentTask>().WithMany().HasForeignKey(x => x.TaskId);
+        m.Entity<ExecutionJob>().HasOne<Project>().WithMany().HasForeignKey(x => x.ProjectId);
+        m.Entity<ExecutionJob>().HasIndex(x => x.TaskId).IsUnique();
+        m.Entity<ExecutionJob>().HasIndex(x => new { x.Status, x.CreatedAt });
+        m.Entity<ToolExecution>().HasOne<AgentRun>().WithMany().HasForeignKey(x => x.AgentRunId);
         m.Entity<Project>().Property(x => x.Name).HasMaxLength(120);
+        m.Entity<Project>().Property(x => x.TestImage).HasDefaultValue("node:24-alpine");
+        m.Entity<Project>().Property(x => x.TestCommand).HasDefaultValue("node --test");
         m.Entity<Project>().HasIndex(x => new { x.OrganizationId, x.CreatedAt });
         m.Entity<Project>().HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId);
         m.Entity<User>().HasOne<Organization>().WithMany().HasForeignKey(x => x.OrganizationId);

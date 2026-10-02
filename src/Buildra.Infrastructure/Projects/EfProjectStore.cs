@@ -31,10 +31,28 @@ public sealed class EfProjectStore(BuildraDbContext db) : IProjectStore
         db.WorkflowEvents.Add(new() { OrganizationId = project.OrganizationId, ProjectId = project.Id, EventType = "ProjectCreated" });
         await db.SaveChangesAsync(ct);
     }
-    public async Task SaveAsync(CancellationToken ct) => await db.SaveChangesAsync(ct);
+    public async Task SaveAsync(CancellationToken ct)
+    {
+        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
+        db.ChangeTracker.DetectChanges();
+        foreach (var entry in db.ChangeTracker.Entries<Project>().Where(e => e.State == EntityState.Modified).OrderBy(e => e.Entity.Id))
+            await GuardActiveExecutionAsync(entry.Entity.Id, ct);
+        await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+    }
     public async Task DeleteAsync(Project project, CancellationToken ct)
     {
+        await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
+        await GuardActiveExecutionAsync(project.Id, ct);
         db.Projects.Remove(project);
         await db.SaveChangesAsync(ct);
+        if (transaction is not null) await transaction.CommitAsync(ct);
+    }
+    private async Task GuardActiveExecutionAsync(Guid projectId, CancellationToken ct)
+    {
+        if (db.Database.IsRelational())
+            await db.Projects.FromSqlInterpolated($"SELECT * FROM \"Projects\" WHERE \"Id\" = {projectId} FOR UPDATE").AsNoTracking().ToListAsync(ct);
+        if (await db.ExecutionJobs.AnyAsync(j => j.ProjectId == projectId && (j.Status == Buildra.Domain.Workflows.ExecutionJobStatus.Queued || j.Status == Buildra.Domain.Workflows.ExecutionJobStatus.Running), ct))
+            throw new ArgumentException("Project settings and deletion are locked while an implementation is queued or running.");
     }
 }

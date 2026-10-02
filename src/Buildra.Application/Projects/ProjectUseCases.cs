@@ -2,7 +2,8 @@ using Buildra.Domain.Projects;
 using Buildra.Domain.Agents;
 namespace Buildra.Application.Projects;
 
-public record ProjectInput(string Name, string Description, string RepositoryUrl, string DefaultBranch, string Instructions);
+public record ProjectInput(string Name, string Description, string RepositoryUrl, string DefaultBranch, string Instructions,
+    string TestImage = "node:24-alpine", string TestCommand = "node --test", bool AutoStartTasks = false);
 public record ProjectDetails(Project Project, IReadOnlyList<AgentDefinition> Team);
 public interface IProjectStore
 {
@@ -42,6 +43,10 @@ public sealed class ProjectUseCases(IProjectStore store)
     }
     public static void Validate(ProjectInput input)
     {
+        if (string.IsNullOrWhiteSpace(input.TestImage) || input.TestImage.Length > 200 ||
+            !System.Text.RegularExpressions.Regex.IsMatch(input.TestImage, @"^[a-zA-Z0-9][a-zA-Z0-9_./:@-]*$") ||
+            string.IsNullOrWhiteSpace(input.TestCommand) || input.TestCommand.Length > 2000 || input.TestCommand.Contains('\0'))
+            throw new ArgumentException("Provide a valid Docker test image and test command.");
         if (string.IsNullOrWhiteSpace(input.Name) || input.Name.Trim().Length > 120)
             throw new ArgumentException("Project name must contain 1–120 characters.");
         if (input.Description is null || input.Description.Length > 2000 || input.Instructions is null || input.Instructions.Length > 20000)
@@ -58,6 +63,10 @@ public sealed class ProjectUseCases(IProjectStore store)
     }
     private static void Apply(Project p, ProjectInput i)
     {
+        if (p.RepositoryUrl != i.RepositoryUrl.TrimEnd('/') || p.DefaultBranch != i.DefaultBranch)
+        { p.RepositoryVerifiedAt = null; p.GitHubRepositoryId = null; }
+        p.TestImage = i.TestImage; p.TestCommand = i.TestCommand;
+        p.AutoStartTasks = i.AutoStartTasks;
         p.Name = i.Name.Trim(); p.Description = i.Description.Trim(); p.RepositoryUrl = i.RepositoryUrl.TrimEnd('/');
         p.DefaultBranch = i.DefaultBranch; p.Instructions = i.Instructions.Trim();
     }

@@ -1,6 +1,6 @@
 # Buildra backend
 
-.NET 10 modular monolith with PostgreSQL/EF Core, a local ASP.NET Core API, and a separate PM worker. `main` holds the base application; `dev` is the integration branch; `feature/pm-request-to-task` adds the first agent workflow.
+.NET 10 modular monolith with PostgreSQL/EF Core, a local ASP.NET Core API, and a separate agent worker. `main` holds the base application; `dev` is the integration branch; `feature/github-task-workflow` adds GitHub verification and Developer/Reviewer execution on top of PM planning.
 
 ## Local startup
 
@@ -38,6 +38,9 @@ The checked-in PostgreSQL credentials are for local development. Override `Conne
 - `GET /api/projects/{id}/planning/` — recent persisted messages, tasks, and runs
 - `POST /api/projects/{id}/planning/requests` with `{ "content": "..." }` — returns HTTP 202 and queues the PM run
 - `POST /api/projects/{id}/planning/runs/{runId}/retry` — retries a failed run
+- `POST /api/projects/{id}/repository/verify` — checks GitHub write access and the configured base branch
+- `POST /api/projects/{id}/tasks/{taskId}/execute` — queues a Ready task or retries a failed implementation
+- `GET /api/projects/{id}/tasks/{taskId}` — task, execution job, runs, reviews, and tool activity
 
 Project creation atomically saves PM/Developer/Reviewer definitions and assignments, project conversation, and creation event. Project deletion removes its data; agent definitions remain organization-owned.
 
@@ -51,12 +54,30 @@ A valid plan creates one Ready task with measurable acceptance criteria. Clarifi
 dotnet build
 dotnet test
 $env:BUILDRA_TEST_POSTGRES = 'Host=localhost;Port=55432;Database=postgres;Username=buildra;Password=buildra_local'
+$env:BUILDRA_TEST_DOCKER = '1'
 dotnet test tests/Buildra.IntegrationTests
 dotnet ef migrations has-pending-model-changes --project src/Buildra.Infrastructure --startup-project src/Buildra.Api
 ```
 
 PostgreSQL tests create randomly named isolated databases and drop only those databases afterward. They exercise task persistence, clarification, failure/retry, queue concurrency, expired leases, stale-worker rejection, permission checks, and invalid model output. Without the test connection, PostgreSQL cases are explicitly skipped. HTTP tests use EF InMemory. OpenAI contract tests use fake HTTP responses; planning tests use a deterministic test provider, with no paid model calls.
 
+## Code execution
+
+Git and Docker must be installed on the worker machine. Sign into GitHub using Git Credential Manager for HTTPS Git operations; Buildra retrieves the cached credential in memory for GitHub REST calls. The account must have repository write access and permission to create pull requests. An empty repository needs an initial commit and the configured base branch before verification succeeds. No GitHub credentials go into project settings or model prompts.
+
+1. Open the project and click **Verify repository**.
+2. Send a specific request to the PM and respond to any clarification.
+3. Click **Start implementation** on a Ready task. Optional **Automatically implement planned tasks** in project settings queues subsequent tasks after repository verification.
+4. Inspect implementation history for runs, tests, review feedback, branch, and commit. Successful review publishes a task branch and opens a PR; merging remains a manual GitHub action.
+
+Each task uses an isolated checkout under `%LOCALAPPDATA%\Buildra\workspaces` and a `buildra/task-{taskId}` branch. The Developer has constrained file/search/test tools; the Reviewer can only read, search, test, and submit a review. Agent file tools reject traversal, symlinks, Git metadata, GitHub workflows, environment files, and common credential files. Repository code never executes directly on the host.
+
+Tests run in an offline Docker container with a read-only source snapshot, non-root user, resource limits, and no mounted credentials. The default is `node:24-alpine` with `node --test`, suited to dependency-free Node projects. Run `docker pull node:24-alpine` before first use. For other stacks, set a locally available image containing the required tools and dependencies and an appropriate test command in project settings. Images need `/bin/sh`, `cp`, and a writable `/tmp`; the container cannot download dependencies during tests. Passing zero tests with the default command is rejected. Both Developer completion and Reviewer approval require passing tests after the final edit.
+
+Execution is bounded to 24 actions per agent run, three implementation/review rounds, two minutes per subprocess, and 45 minutes per job. Jobs have renewable three-minute leases, stale-worker fencing, and an exclusive workspace lock. A retry retains the workspace and existing branch; publishing reuses an existing open task PR. Project editing/deletion is blocked while code execution is queued or running. Configure `OpenAI:StrongCodingModel` to change the Developer/Reviewer model; it defaults to `gpt-4.1-mini`.
+
+Workflow tests use deterministic model actions with real PostgreSQL, Git, and Docker. GitHub HTTP tests verify PR creation/reuse and rejection of changes after review using simulated responses; they do not create remote PRs or make paid model calls.
+
 ## Remaining work
 
-GitHub verification and credentials; repository/worktree adapter; Developer/Reviewer execution; PR creation; fuller agent configuration; direct and task chat UI; SignalR realtime updates; cancellation and budgets. The current UI polls persisted state every two seconds. Real OpenAI calls require a valid local API key and model access; these are not verified by the deterministic tests.
+Fuller agent configuration; direct and task chat UI; SignalR realtime updates; user cancellation and configurable spend budgets; dependency provisioning for arbitrary stacks. The current UI polls persisted state every two seconds. Real OpenAI calls require a valid local API key and model access; these are not verified by the deterministic tests.

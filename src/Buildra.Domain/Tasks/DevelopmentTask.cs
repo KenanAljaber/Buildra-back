@@ -39,6 +39,11 @@ public sealed class DevelopmentTask
             throw new InvalidOperationException("A pull request is required to complete a task.");
         Status = next;
     }
+    public void RetryExecution()
+    {
+        if (Status != TaskStatus.Failed) throw new InvalidOperationException("Only failed tasks can be retried.");
+        Status = string.IsNullOrWhiteSpace(Commit) ? TaskStatus.Ready : TaskStatus.ChangesRequested;
+    }
 }
 
 public enum ReviewStatus { Approved, ChangesRequested, Rejected }
