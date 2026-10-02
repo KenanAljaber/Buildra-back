@@ -85,10 +85,11 @@ public sealed partial class PlanningPostgresTests
     {
         await using var repo = new LocalRepository();
         await repo.Git.GitAsync(repo.Root, default, "init", "--bare", "--initial-branch=main", repo.Remote);
-        await repo.Git.InitializeEmptyAsync(repo.Remote, "main", default);
+        var initializer = new GitWorkspace(new BoundedProcess(), Options.Create(new GitHubOptions { WorkspaceRoot = Path.Combine(repo.Root, new string('x', 40)) }));
+        await initializer.InitializeEmptyAsync(repo.Remote, "main", default);
         var first = await repo.Git.GitAsync(repo.Remote, default, "rev-parse", "refs/heads/main");
         Assert.Contains("Initialized by Buildra", await repo.Git.GitAsync(repo.Remote, default, "show", "main:README.md"));
-        await repo.Git.InitializeEmptyAsync(repo.Remote, "main", default);
+        await initializer.InitializeEmptyAsync(repo.Remote, "main", default);
         Assert.Equal(first, await repo.Git.GitAsync(repo.Remote, default, "rev-parse", "refs/heads/main"));
         var workspace = await repo.Git.PrepareAsync(repo.Remote, "main", Guid.NewGuid(), default);
         using (workspace.Lock) Assert.True(File.Exists(Path.Combine(workspace.SourceDirectory, "README.md")));

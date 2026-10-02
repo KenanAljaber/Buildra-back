@@ -60,7 +60,7 @@ public sealed class GitWorkspace(BoundedProcess process, IOptions<GitHubOptions>
     public async Task<string> GitAsync(string directory, CancellationToken ct, params string[] args)
     {
         var noHooks = Path.Combine(Path.GetFullPath(options.Value.WorkspaceRoot), "no-hooks"); Directory.CreateDirectory(noHooks);
-        var result = await process.RunAsync("git", new[] { "-c", "core.hooksPath=" + noHooks, "-c", "core.autocrlf=false", "-c", "diff.external=", "-c", "core.fsmonitor=false" }.Concat(args), directory, ct);
+        var result = await process.RunAsync("git", new[] { "-c", "core.longpaths=true", "-c", "core.hooksPath=" + noHooks, "-c", "core.autocrlf=false", "-c", "diff.external=", "-c", "core.fsmonitor=false" }.Concat(args), directory, ct);
         if (result.ExitCode != 0) throw new SourceControlException("Git operation failed. Check repository access, the default branch, and workspace status.");
         return result.Output;
     }
