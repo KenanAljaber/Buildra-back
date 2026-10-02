@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Buildra.Api/Buildra.Api.csproj" />
+    <Project Path="src/Buildra.Application/Buildra.Application.csproj" />
+    <Project Path="src/Buildra.Domain/Buildra.Domain.csproj" />
+    <Project Path="src/Buildra.Infrastructure/Buildra.Infrastructure.csproj" />
+    <Project Path="src/Buildra.Worker/Buildra.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Buildra.ArchitectureTests/Buildra.ArchitectureTests.csproj" />
+    <Project Path="tests/Buildra.IntegrationTests/Buildra.IntegrationTests.csproj" />
+    <Project Path="tests/Buildra.UnitTests/Buildra.UnitTests.csproj" />
+  </Folder>
+</Solution>
