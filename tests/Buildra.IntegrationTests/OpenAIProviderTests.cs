@@ -7,6 +7,41 @@ namespace Buildra.IntegrationTests;
 
 public sealed class OpenAIProviderTests
 {
+    [Fact]
+    public async Task TruncatedActionRecoversWithLargerBudgetAndCountsAllUsage()
+    {
+        var calls = 0; var recoveries = new List<string>();
+        using var http = new HttpClient(new Handler(async request => {
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            Assert.Equal(calls++ == 0 ? 8000 : 16000, body.RootElement.GetProperty("max_output_tokens").GetInt32());
+            return new(HttpStatusCode.OK) { Content = new StringContent(calls == 1
+                ? """{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"model":"test-model","usage":{"input_tokens":100,"output_tokens":8000}}"""
+                : """{"status":"completed","model":"test-model","output":[{"type":"message","content":[{"type":"output_text","text":"{}"}]}],"usage":{"input_tokens":120,"output_tokens":50}}""") };
+        }));
+        var provider = new OpenAIModelProvider(http, Options.Create(new OpenAIOptions { ApiKey = "test", InputCostPerMillionTokens = 1, OutputCostPerMillionTokens = 2 }));
+        var result = await provider.GenerateAsync(new("StrongCoding", "Write", "Context", MaxOutputTokens: 8000, OnRecovery: message => { recoveries.Add(message); return Task.CompletedTask; }), default);
+        Assert.Equal(2, calls); Assert.Single(recoveries); Assert.Equal(220, result.InputTokens); Assert.Equal(8050, result.OutputTokens); Assert.Equal(0.01632m, result.EstimatedCost);
+    }
+
+    [Fact]
+    public async Task AutomaticRecoveryIsBoundedAndPreservesFailedUsage()
+    {
+        var calls = 0;
+        using var http = new HttpClient(new Handler(_ => { calls++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+            Content = new StringContent("""{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"model":"test","usage":{"input_tokens":10,"output_tokens":20}}""") }); }));
+        var provider = new OpenAIModelProvider(http, Options.Create(new OpenAIOptions { ApiKey = "test" }));
+        var failure = await Assert.ThrowsAsync<ModelProviderException>(() => provider.GenerateAsync(new("StrongCoding", "", ""), default));
+        Assert.Equal(3, calls); Assert.False(failure.Retryable); Assert.Equal(30, failure.Usage!.InputTokens); Assert.Equal(60, failure.Usage.OutputTokens);
+    }
+
+    [Fact]
+    public async Task QuotaErrorsDoNotTriggerAutomaticPaidRetries()
+    {
+        var calls = 0;
+        using var http = new HttpClient(new Handler(_ => { calls++; return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("""{"error":{"code":"insufficient_quota"}}""") }); }));
+        var provider = new OpenAIModelProvider(http, Options.Create(new OpenAIOptions { ApiKey = "test" }));
+        await Assert.ThrowsAsync<ModelProviderException>(() => provider.GenerateAsync(new("StrongCoding", "", ""), default)); Assert.Equal(1, calls);
+    }
     private sealed class Handler(Func<HttpRequestMessage, Task<HttpResponseMessage>> handle) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => handle(request);

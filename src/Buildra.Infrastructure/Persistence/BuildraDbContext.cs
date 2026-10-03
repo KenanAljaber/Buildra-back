@@ -24,6 +24,7 @@ public sealed class BuildraDbContext(DbContextOptions<BuildraDbContext> options)
     public DbSet<PlanningRequest> PlanningRequests => Set<PlanningRequest>();
     public DbSet<ExecutionJob> ExecutionJobs => Set<ExecutionJob>();
     public DbSet<ToolExecution> ToolExecutions => Set<ToolExecution>();
+    public DbSet<WorkerHeartbeat> WorkerHeartbeats => Set<WorkerHeartbeat>();
     protected override void OnModelCreating(ModelBuilder m)
     {
         m.Entity<ProjectAgent>().HasKey(x => new { x.ProjectId, x.AgentDefinitionId });

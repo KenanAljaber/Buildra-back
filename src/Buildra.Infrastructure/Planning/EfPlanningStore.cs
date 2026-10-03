@@ -71,7 +71,7 @@ public sealed class EfPlanningStore(BuildraDbContext db) : IPlanningStore
         request.Status = PlanningRequestStatus.Running; request.LeaseToken = Guid.NewGuid();
         request.LeaseExpiresAt = DateTimeOffset.UtcNow.AddMinutes(5);
         var run = await db.AgentRuns.SingleAsync(r => r.Id == request.AgentRunId, ct);
-        run.Status = AgentRunStatus.Running; run.StartedAt = DateTimeOffset.UtcNow; run.Error = null;
+        run.Status = AgentRunStatus.Running; run.StartedAt = DateTimeOffset.UtcNow; run.Error = null; run.Activity = "Planning acceptance criteria"; run.UpdatedAt = DateTimeOffset.UtcNow;
         var project = await db.Projects.SingleAsync(p => p.Id == request.ProjectId, ct);
         var agent = await db.Agents.SingleAsync(a => a.Id == run.AgentDefinitionId, ct);
         var message = await db.Messages.SingleAsync(m => m.Id == request.MessageId, ct);

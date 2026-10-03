@@ -53,7 +53,13 @@ public sealed class WorkspaceFiles
     public void Write(string root, string path, string content)
     {
         if (content.Length > 100000 || content.Contains('\0')) throw new ExecutionException("File content exceeds the allowed text limits.");
-        var full = Resolve(root, path); Directory.CreateDirectory(Path.GetDirectoryName(full)!); File.WriteAllText(full, content);
+        var full = Resolve(root, path);
+        if (Path.GetFileName(full).Equals("package.json", StringComparison.OrdinalIgnoreCase))
+        {
+            try { using var json = System.Text.Json.JsonDocument.Parse(content); if (json.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) throw new System.Text.Json.JsonException(); }
+            catch (System.Text.Json.JsonException) { throw new ExecutionException("package.json must be a valid JSON object with no comments or Markdown. Correct the content and retry the file action."); }
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!); File.WriteAllText(full, content);
     }
     public void Delete(string root, string path)
     {

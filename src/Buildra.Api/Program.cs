@@ -24,6 +24,10 @@ var app = builder.Build();
 app.UseExceptionHandler();
 app.UseCors();
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", milestone = "github-task-workflow" }));
+app.MapGet("/api/status", async (BuildraDbContext db, CancellationToken ct) => {
+    var pulse = await db.WorkerHeartbeats.AsNoTracking().SingleOrDefaultAsync(p => p.Id == "agents", ct);
+    return Results.Ok(new { workerOnline = pulse is not null && pulse.UpdatedAt > DateTimeOffset.UtcNow.AddSeconds(-20), lastHeartbeat = pulse?.UpdatedAt, serverTime = DateTimeOffset.UtcNow });
+});
 // Local-only identity. Remote deployment requires authentication and tenant resolution.
 var organizationId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 app.MapPlanningEndpoints(organizationId);

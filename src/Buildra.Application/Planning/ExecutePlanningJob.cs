@@ -37,7 +37,7 @@ public sealed class ExecutePlanningJob(IPlanningStore store, IModelProvider prov
                 JsonException => "The PM returned invalid JSON. Please retry the request.",
                 _ => "The PM could not produce a valid task. Please retry the request."
             };
-            await store.FailAsync(job, safeError, response, ct);
+            await store.FailAsync(job, safeError, response ?? (error as ModelProviderException)?.Usage, ct);
         }
         return true;
     }

@@ -21,6 +21,13 @@ public sealed class WorkspaceSecurityTests : IDisposable
     [InlineData("CON.js")]
     public void RejectsWorkspaceEscapeAndSensitivePaths(string path) => Assert.Throws<ExecutionException>(() => files.Write(root, path, "blocked"));
     [Fact]
+    public void InvalidPackageJsonIsRejectedWithoutReplacingExistingConfiguration()
+    {
+        files.Write(root, "package.json", "{\"type\":\"module\"}");
+        Assert.Throws<ExecutionException>(() => files.Write(root, "package.json", "{\"type\":\"module\"}\n// explanatory text"));
+        Assert.Equal("{\"type\":\"module\"}", files.Read(root, "package.json"));
+    }
+    [Fact]
     public void ReadWriteSearchOnlyUseRegularSourceFiles()
     {
         files.Write(root, "src/app.js", "export const ready = true;");

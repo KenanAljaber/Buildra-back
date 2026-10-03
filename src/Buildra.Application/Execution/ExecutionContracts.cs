@@ -19,6 +19,7 @@ public interface IExecutionStore
     Task<AgentRun> BeginRunAsync(ExecutionContext context, AgentDefinition agent, CancellationToken ct);
     Task RecordToolAsync(ExecutionContext context, Guid runId, string tool, string summary, bool succeeded, CancellationToken ct);
     Task RecordModelAsync(ExecutionContext context, Guid runId, ModelResponse response, CancellationToken ct);
+    Task ProgressAsync(ExecutionContext context, AgentRun run, string activity, int step, bool recovery, CancellationToken ct);
     Task FinishRunAsync(ExecutionContext context, AgentRun run, string result, CancellationToken ct);
     Task SubmitImplementationAsync(ExecutionContext context, string branch, string commit, CancellationToken ct);
     Task SubmitReviewAsync(ExecutionContext context, bool approved, string summary, CancellationToken ct);

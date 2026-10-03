@@ -78,6 +78,14 @@ Execution is bounded to 24 actions per agent run, three implementation/review ro
 
 Workflow tests use deterministic model actions with real PostgreSQL, Git, and Docker. GitHub HTTP tests verify PR creation/reuse and rejection of changes after review using simulated responses; they do not create remote PRs or make paid model calls.
 
+## Live activity and recovery
+
+`GET /api/status` reports the agent worker heartbeat. The worker writes a pulse every five seconds; the UI considers it offline after twenty seconds without a pulse. Agent runs persist their current action, last activity time, step count, and automatic recovery count. The dashboard updates activity every two seconds and offers manual refresh plus task Activity/Reviews/Branch tabs.
+
+Model requests automatically retry recoverable connection failures, timeouts, HTTP 408/429/5xx responses, and output-budget truncation up to twice. Truncated structured output is discarded and regenerated with a larger bounded output budget (maximum 16,000 tokens) and instructions to split work into small files. Returned usage from failed generations is included in run totals. Authentication, insufficient quota, refusals, and other terminal errors still require attention. The same task/workspace is retained. Execution start/retry is idempotent while a job is queued or running; repeated clicks do not create duplicate jobs.
+
+An empty `searchFiles` query lists the repository files. Tool errors are returned to the agent to correct on its next action; they do not immediately fail the workflow. The action, review-round, and job-time limits still apply.
+
 ## Remaining work
 
 Fuller agent configuration; direct and task chat UI; SignalR realtime updates; user cancellation and configurable spend budgets; dependency provisioning for arbitrary stacks. The current UI polls persisted state every two seconds. Real OpenAI calls require a valid local API key and model access; these are not verified by the deterministic tests.

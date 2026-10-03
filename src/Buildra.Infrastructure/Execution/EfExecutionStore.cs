@@ -34,7 +34,8 @@ public sealed class EfExecutionStore(BuildraDbContext db) : IExecutionStore
             where pa.ProjectId == projectId && pa.Enabled && a.OrganizationId == org select a.Role).ToListAsync(ct);
         if (!roles.Contains(AgentRole.Developer) || !roles.Contains(AgentRole.Reviewer)) throw new ExecutionException("Assign an enabled Developer and Reviewer first.");
         var job = await db.ExecutionJobs.SingleOrDefaultAsync(j => j.TaskId == taskId, ct);
-        if (job is not null && job.Status != ExecutionJobStatus.Failed) throw new ExecutionException("This task is already queued, running, or completed.");
+        if (job?.Status is ExecutionJobStatus.Queued or ExecutionJobStatus.Running) { await tx.CommitAsync(ct); return true; }
+        if (job?.Status == ExecutionJobStatus.Completed) throw new ExecutionException("This task is already completed. Open its pull request or create a new task.");
         if (task.Status == Status.Failed) task.RetryExecution();
         if (task.Status is not (Status.Ready or Status.ChangesRequested)) throw new ExecutionException("Only ready tasks or failed implementations can be started.");
         if (job is null) db.ExecutionJobs.Add(new() { TaskId = taskId, ProjectId = projectId });
@@ -120,7 +121,10 @@ public sealed class EfExecutionStore(BuildraDbContext db) : IExecutionStore
         }, ct);
     }
     public Task FinishRunAsync(Context c, AgentRun run, string result, CancellationToken ct) => LockedAsync(c, () => {
-        run.Status = AgentRunStatus.Completed; run.Result = result; run.CompletedAt = DateTimeOffset.UtcNow;
+        run.Status = AgentRunStatus.Completed; run.Result = result; run.CompletedAt = DateTimeOffset.UtcNow; run.Activity = "Finished"; run.UpdatedAt = DateTimeOffset.UtcNow;
+    }, ct);
+    public Task ProgressAsync(Context c, AgentRun run, string activity, int step, bool recovery, CancellationToken ct) => LockedAsync(c, () => {
+        run.Activity = activity; run.Step = step; run.UpdatedAt = DateTimeOffset.UtcNow; if (recovery) run.Recoveries++;
     }, ct);
     public Task SubmitImplementationAsync(Context c, string branch, string commit, CancellationToken ct) => LockedAsync(c, () => {
         c.Task.Branch = branch; c.Task.Commit = commit; c.Task.TransitionTo(Status.InReview); Event(c.Project, c.Task.Id, "ImplementationSubmitted");

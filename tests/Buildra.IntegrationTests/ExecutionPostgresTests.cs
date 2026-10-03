@@ -34,9 +34,15 @@ public sealed partial class PlanningPostgresTests
     private sealed class ScriptProvider(IEnumerable<AgentAction> script) : IModelProvider
     {
         private readonly Queue<AgentAction> actions = new(script);
+        private readonly List<string> written = [];
         public Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken ct)
         {
+            using var context = JsonDocument.Parse(request.Context);
+            var files = context.RootElement.GetProperty("files").EnumerateArray().Select(f => f.GetString()).ToArray();
+            Assert.All(written, file => Assert.Contains(file, files));
+            Assert.True(context.RootElement.GetProperty("remainingActions").GetInt32() > 0);
             var action = actions.Count > 0 ? actions.Dequeue() : new AgentAction("complete", "", "", "", "Finished");
+            if (action.Action == "writeFile") written.Add(action.Path);
             return Task.FromResult(new ModelResponse(JsonSerializer.Serialize(action, new JsonSerializerOptions(JsonSerializerDefaults.Web)), "test-model", 10, 5));
         }
     }
@@ -191,6 +197,7 @@ public sealed partial class PlanningPostgresTests
         Assert.Equal(Status.Completed, details.Task.Status); Assert.Equal(1, source.Published);
         Assert.Equal(2, details.Reviews.Count); Assert.Equal(ReviewStatus.ChangesRequested, details.Reviews[0].Status); Assert.Equal(ReviewStatus.Approved, details.Reviews[1].Status);
         Assert.Equal(4, details.Runs.Count); Assert.All(details.Runs, run => Assert.Equal(Buildra.Domain.Agents.AgentRunStatus.Completed, run.Status));
+        Assert.All(details.Runs, run => { Assert.True(run.Step > 0); Assert.NotNull(run.UpdatedAt); Assert.Equal("Finished", run.Activity); });
         Assert.Contains(details.Tools, tool => tool.Tool == "runTests" && tool.Succeeded);
         Assert.Equal(mainBefore, await repo.Git.GitAsync(repo.Remote, default, "rev-parse", "refs/heads/main"));
         Assert.False(File.Exists(Path.Combine(repo.Seed, "sum.js")));
@@ -216,7 +223,8 @@ public sealed partial class PlanningPostgresTests
     {
         var project = await CreateProject(); var task = await ReadyTask(project); await using var first = Context(); var store = new EfExecutionStore(first);
         Assert.False(await store.EnqueueAsync(Guid.NewGuid(), project.Id, task.Id, default)); Assert.True(await store.EnqueueAsync(org, project.Id, task.Id, default));
-        await Assert.ThrowsAsync<ExecutionException>(() => store.EnqueueAsync(org, project.Id, task.Id, default));
+        Assert.True(await store.EnqueueAsync(org, project.Id, task.Id, default));
+        Assert.Equal(1, await first.ExecutionJobs.CountAsync());
         var job = (await store.ClaimAsync(default))!;
         await using var second = Context(); await second.ExecutionJobs.Where(j => j.Id == job.Job.Id).ExecuteUpdateAsync(u => u.SetProperty(j => j.LeaseExpiresAt, DateTimeOffset.UtcNow.AddMinutes(-1)));
         var recovered = (await new EfExecutionStore(second).ClaimAsync(default))!;

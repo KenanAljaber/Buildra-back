@@ -18,4 +18,5 @@ builder.Services.AddHostedService<Worker>();
 builder.Services.AddBuildraExecution();
 builder.Services.AddScoped<Buildra.Application.Execution.ExecuteCodeWorkflow>();
 builder.Services.AddHostedService<ExecutionWorker>();
+builder.Services.AddHostedService<WorkerPulse>();
 await builder.Build().RunAsync();

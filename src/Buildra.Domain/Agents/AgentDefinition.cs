@@ -61,4 +61,8 @@ public sealed class AgentRun
     public decimal? EstimatedCost { get; set; }
     public string? Result { get; set; }
     public string? Error { get; set; }
+    public string Activity { get; set; } = "";
+    public DateTimeOffset? UpdatedAt { get; set; }
+    public int Step { get; set; }
+    public int Recoveries { get; set; }
 }
