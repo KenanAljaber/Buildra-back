@@ -13,7 +13,7 @@ public record AgentAction(string Action, string Path, string Content, string Que
         return action;
     }
     public static string[] AllowedActions(AgentRole role) => role switch {
-        AgentRole.Developer => ["readFile", "searchFiles", "writeFile", "deleteFile", "runTests", "complete"],
+        AgentRole.Developer => ["readFile", "searchFiles", "writeFile", "editFile", "deleteFile", "runTests", "complete"],
         AgentRole.Reviewer => ["readFile", "searchFiles", "runTests", "approve", "requestChanges"],
         _ => []
     };

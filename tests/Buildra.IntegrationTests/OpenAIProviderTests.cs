@@ -7,6 +7,29 @@ namespace Buildra.IntegrationTests;
 
 public sealed class OpenAIProviderTests
 {
+    [Theory]
+    [InlineData(Buildra.Domain.Agents.AgentRole.Developer)]
+    [InlineData(Buildra.Domain.Agents.AgentRole.Reviewer)]
+    public async Task CodingUsesRoleScopedNativeToolsWithOnlyRelevantArguments(Buildra.Domain.Agents.AgentRole role)
+    {
+        using var http = new HttpClient(new Handler(async request => {
+            using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            var root = body.RootElement;
+            Assert.False(root.TryGetProperty("text", out _));
+            Assert.Equal("required", root.GetProperty("tool_choice").GetString());
+            Assert.False(root.GetProperty("parallel_tool_calls").GetBoolean());
+            var tools = root.GetProperty("tools").EnumerateArray().ToArray();
+            Assert.Equal(Buildra.Application.Execution.AgentAction.AllowedActions(role), tools.Select(t => t.GetProperty("name").GetString()));
+            var read = tools.Single(t => t.GetProperty("name").GetString() == "readFile");
+            Assert.Equal(new[] { "path" }, read.GetProperty("parameters").GetProperty("properties").EnumerateObject().Select(p => p.Name));
+            return new(HttpStatusCode.OK) { Content = new StringContent("""{"status":"completed","model":"test-model","output":[{"type":"function_call","name":"readFile","arguments":"{\"path\":\"package.json\"}"}],"usage":{"input_tokens":100,"output_tokens":20}}""") };
+        }));
+        var provider = new OpenAIModelProvider(http, Options.Create(new OpenAIOptions { ApiKey = "test" }));
+        var result = await provider.GenerateAsync(new("StrongCoding", "Read", "Context", Buildra.Application.Execution.AgentAction.Schema(role), "agent_action"), default);
+        var action = Buildra.Application.Execution.AgentAction.Parse(result.Content, role);
+        Assert.Equal("readFile", action.Action); Assert.Equal("package.json", action.Path); Assert.Equal("", action.Content);
+    }
+
     [Fact]
     public async Task TruncatedActionRecoversWithLargerBudgetAndCountsAllUsage()
     {

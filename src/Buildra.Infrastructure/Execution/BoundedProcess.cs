@@ -7,10 +7,10 @@ public record ProcessResult(int ExitCode, string Output, string Error);
 public sealed class BoundedProcess
 {
     public async Task<ProcessResult> RunAsync(string executable, IEnumerable<string> arguments, string? directory, CancellationToken ct,
-        string? input = null, int timeoutSeconds = 120, IReadOnlyDictionary<string, string>? extraEnvironment = null)
+        string? input = null, int timeoutSeconds = 120, IReadOnlyDictionary<string, string>? extraEnvironment = null, byte[]? binaryInput = null)
     {
         var start = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = input is not null,
+            RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = input is not null || binaryInput is not null,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8 };
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         if (directory is not null) start.WorkingDirectory = directory;
@@ -25,7 +25,8 @@ public sealed class BoundedProcess
         var output = DrainAsync(process.StandardOutput, timeout.Token); var error = DrainAsync(process.StandardError, timeout.Token);
         try
         {
-            if (input is not null) { await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token); process.StandardInput.Close(); }
+            if (binaryInput is not null) { await process.StandardInput.BaseStream.WriteAsync(binaryInput, timeout.Token); process.StandardInput.Close(); }
+            else if (input is not null) { await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token); process.StandardInput.Close(); }
             await process.WaitForExitAsync(timeout.Token);
             return new(process.ExitCode, await output, await error);
         }

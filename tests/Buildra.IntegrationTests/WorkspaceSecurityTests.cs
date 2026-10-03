@@ -21,6 +21,19 @@ public sealed class WorkspaceSecurityTests : IDisposable
     [InlineData("CON.js")]
     public void RejectsWorkspaceEscapeAndSensitivePaths(string path) => Assert.Throws<ExecutionException>(() => files.Write(root, path, "blocked"));
     [Fact]
+    public void TargetedEditsRejectAmbiguousOrStaleTextAndPreserveOtherLines()
+    {
+        files.Write(root, "src/app.js", "first\nconst x = 1;\nlast\n");
+        files.Edit(root, "src/app.js", "const x = 1;", "const x = 2;");
+        Assert.Equal("first\nconst x = 2;\nlast\n", files.Read(root, "src/app.js"));
+        Assert.Throws<ExecutionException>(() => files.Edit(root, "src/app.js", "const x = 1;", "bad"));
+        files.Write(root, "duplicate.js", "same\nsame\n");
+        Assert.Throws<ExecutionException>(() => files.Edit(root, "duplicate.js", "same", "bad"));
+        Assert.Throws<ExecutionException>(() => files.Write(root, "duplicate.js", "same\nsame\n"));
+        files.Write(root, "overlap.js", "aaa");
+        Assert.Throws<ExecutionException>(() => files.Edit(root, "overlap.js", "aa", "b"));
+    }
+    [Fact]
     public void InvalidPackageJsonIsRejectedWithoutReplacingExistingConfiguration()
     {
         files.Write(root, "package.json", "{\"type\":\"module\"}");

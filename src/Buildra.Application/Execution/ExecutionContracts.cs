@@ -32,6 +32,8 @@ public interface IWorkspaceTools
     IReadOnlyList<string> ListFiles(string root);
     string ReadFile(string root, string path);
     void WriteFile(string root, string path, string content);
+    void EditFile(string root, string path, string oldText, string newText);
+    Task<string> PrepareAsync(string root, string image, string command, CancellationToken ct);
     void DeleteFile(string root, string path);
     string SearchFiles(string root, string query);
     Task<TestResult> RunTestsAsync(string root, string image, string command, CancellationToken ct);

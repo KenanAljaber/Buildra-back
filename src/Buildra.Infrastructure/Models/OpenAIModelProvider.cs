@@ -55,9 +55,21 @@ public sealed class OpenAIModelProvider(HttpClient http, IOptions<OpenAIOptions>
             """);
         using var message = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/responses");
         message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", settings.ApiKey);
-        message.Content = JsonContent.Create(new { model, instructions = request.Instructions,
-            input = request.Context, store = false, max_output_tokens = request.MaxOutputTokens,
-            text = new { format = new { type = "json_schema", name = request.OutputName, strict = true, schema } } });
+        var isAction = request.OutputName == "agent_action";
+        var payload = new Dictionary<string, object> { ["model"] = model, ["instructions"] = request.Instructions,
+            ["input"] = request.Context, ["store"] = false, ["max_output_tokens"] = request.MaxOutputTokens };
+        var actions = isAction ? schema.GetProperty("properties").GetProperty("action").GetProperty("enum").EnumerateArray().Select(x => x.GetString()!).ToArray() : [];
+        if (isAction)
+        {
+            payload["tools"] = actions.Select(name => new { type = "function", name, strict = true,
+                description = "Perform the " + name + " action. Use only the provided parameters.",
+                parameters = new { type = "object", properties = ActionFields(name).ToDictionary(field => field, field => new { type = "string" }),
+                    required = ActionFields(name), additionalProperties = false } }).ToArray();
+            payload["tool_choice"] = "required";
+            payload["parallel_tool_calls"] = false;
+        }
+        else payload["text"] = new { format = new { type = "json_schema", name = request.OutputName, strict = true, schema } };
+        message.Content = JsonContent.Create(payload);
         HttpResponseMessage sent;
         try { sent = await http.SendAsync(message, cancellationToken); }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw new ModelProviderException("The model request timed out.", true); }
@@ -85,8 +97,22 @@ public sealed class OpenAIModelProvider(HttpClient http, IOptions<OpenAIOptions>
             throw new ModelProviderException(reason == "max_output_tokens" ? "The generated action exceeded its output limit." : "The model could not finish this action. Inspect the request before retrying.", reason == "max_output_tokens", reason ?? "unknown", usageResponse);
         }
         var content = new List<string>();
+        if (isAction)
+        {
+            var calls = root.GetProperty("output").EnumerateArray().Where(x => x.GetProperty("type").GetString() == "function_call").ToArray();
+            if (calls.Length != 1) throw new ModelProviderException("The model must select exactly one permitted tool.");
+            var name = calls[0].GetProperty("name").GetString()!;
+            if (!actions.Contains(name)) throw new ModelProviderException("The model selected a forbidden tool.");
+            using var args = JsonDocument.Parse(calls[0].GetProperty("arguments").GetString()!);
+            var fields = ActionFields(name);
+            if (args.RootElement.ValueKind != JsonValueKind.Object || args.RootElement.EnumerateObject().Any(x => !fields.Contains(x.Name)) || fields.Any(x => !args.RootElement.TryGetProperty(x, out var value) || value.ValueKind != JsonValueKind.String))
+                throw new ModelProviderException("The model returned invalid tool arguments.");
+            string Field(string field) => args.RootElement.TryGetProperty(field, out var value) ? value.GetString()! : "";
+            content.Add(JsonSerializer.Serialize(new { action = name, path = Field("path"), content = Field("content"), query = Field("query"), summary = Field("summary") }));
+        }
         foreach (var item in root.GetProperty("output").EnumerateArray())
         {
+            if (isAction) break;
             if (item.GetProperty("type").GetString() != "message") continue;
             foreach (var part in item.GetProperty("content").EnumerateArray())
             {
@@ -102,6 +128,12 @@ public sealed class OpenAIModelProvider(HttpClient http, IOptions<OpenAIOptions>
             ? (inputTokens * settings.InputCostPerMillionTokens + outputTokens * settings.OutputCostPerMillionTokens) / 1_000_000m : null;
         return new(string.Concat(content), root.GetProperty("model").GetString()!, inputTokens, outputTokens, cost);
     }
+    private static string[] ActionFields(string name) => name switch {
+        "readFile" or "deleteFile" => ["path"], "searchFiles" => ["query"],
+        "writeFile" => ["path", "content"], "editFile" => ["path", "query", "content"],
+        "runTests" => [], "complete" or "approve" or "requestChanges" => ["summary"],
+        _ => throw new ModelProviderException("Unknown action tool.")
+    };
     private static decimal? Cost(int input, int output, OpenAIOptions settings) => settings.InputCostPerMillionTokens is >= 0 && settings.OutputCostPerMillionTokens is >= 0
         ? (input * settings.InputCostPerMillionTokens + output * settings.OutputCostPerMillionTokens) / 1_000_000m : null;
 }

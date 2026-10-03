@@ -35,14 +35,22 @@ public sealed partial class PlanningPostgresTests
     {
         private readonly Queue<AgentAction> actions = new(script);
         private readonly List<string> written = [];
+        private AgentAction? previous;
         public Task<ModelResponse> GenerateAsync(ModelRequest request, CancellationToken ct)
         {
             using var context = JsonDocument.Parse(request.Context);
             var files = context.RootElement.GetProperty("files").EnumerateArray().Select(f => f.GetString()).ToArray();
             Assert.All(written, file => Assert.Contains(file, files));
             Assert.True(context.RootElement.GetProperty("remainingActions").GetInt32() > 0);
+            if (previous?.Action is "writeFile" or "editFile")
+            {
+                var last = context.RootElement.GetProperty("recentToolResults").EnumerateArray().Last();
+                Assert.Equal(previous.Content, last.GetProperty("arguments").GetProperty("content").GetString());
+                Assert.Equal(previous.Query, last.GetProperty("arguments").GetProperty("query").GetString());
+            }
             var action = actions.Count > 0 ? actions.Dequeue() : new AgentAction("complete", "", "", "", "Finished");
             if (action.Action == "writeFile") written.Add(action.Path);
+            previous = action;
             return Task.FromResult(new ModelResponse(JsonSerializer.Serialize(action, new JsonSerializerOptions(JsonSerializerDefaults.Web)), "test-model", 10, 5));
         }
     }
@@ -85,6 +93,32 @@ public sealed partial class PlanningPostgresTests
         }
     }
     private static AgentAction Action(string name, string path = "", string content = "", string summary = "") => new(name, path, content, "", summary);
+
+    [DockerPostgreSqlFact]
+    public async Task DockerTransfersWindowsWorkspaceAndDetectsPassingAndFailingNestedTests()
+    {
+        var parent = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Buildra", "workspaces");
+        var root = Path.Combine(parent, "validation-" + Guid.NewGuid().ToString("N"));
+        var source = Path.Combine(root, "source"); Directory.CreateDirectory(source);
+        try
+        {
+            var files = new WorkspaceFiles(); var runner = new DockerWorkspaceTools(files, new BoundedProcess());
+            Assert.Contains("Created a CommonJS Node scaffold", await runner.PrepareAsync(source, "node:24-alpine", "node --test", default));
+            Assert.Contains("commonjs", files.Read(source, "package.json"));
+            Assert.DoesNotContain(files.List(source), path => path.EndsWith(".test.cjs"));
+            files.Write(source, "test/nested/transfer.test.cjs", "const test=require('node:test');const assert=require('node:assert/strict');test('source arrived from Windows',()=>assert.equal(7,7));");
+            var passing = await runner.RunTestsAsync(source, "node:24-alpine", "node --test", default);
+            Assert.True(passing.Passed, passing.Output); Assert.Contains("source arrived from Windows", passing.Output);
+            files.Edit(source, "test/nested/transfer.test.cjs", "assert.equal(7,7)", "assert.equal(7,8)");
+            var failing = await runner.RunTestsAsync(source, "node:24-alpine", "node --test", default);
+            Assert.False(failing.Passed); Assert.Contains("source arrived from Windows", failing.Output);
+        }
+        finally
+        {
+            if (!Path.GetFullPath(root).StartsWith(Path.GetFullPath(parent) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !Path.GetFileName(root).StartsWith("validation-")) throw new InvalidOperationException("Invalid test cleanup path");
+            Directory.Delete(root, true);
+        }
+    }
 
     [Fact]
     public async Task EmptyRepositoryGetsOneInitialCommitAndSupportsTaskCheckout()
@@ -188,7 +222,7 @@ public sealed partial class PlanningPostgresTests
             Action("writeFile", "sum.test.js", "const test=require('node:test');const assert=require('node:assert/strict');const sum=require('./sum');test('adds numbers',()=>assert.equal(sum(2,3),5));"),
             Action("runTests"), Action("complete", summary: "Added sum and passing tests."),
             Action("readFile", "sum.js"), Action("runTests"), Action("requestChanges", summary: "Document the exported function."),
-            Action("writeFile", "sum.js", "/** Adds two numbers. */\nmodule.exports = (a,b) => a+b;"),
+            new AgentAction("editFile", "sum.js", "/** Adds two numbers. */\nmodule.exports = (a,b) => a+b;", "module.exports = (a,b) => a+b;", "Document the function."),
             Action("runTests"), Action("complete", summary: "Documented the function; tests pass."),
             Action("readFile", "sum.js"), Action("runTests"), Action("approve", summary: "Acceptance criteria and independent tests pass.")
         };
@@ -199,6 +233,7 @@ public sealed partial class PlanningPostgresTests
         Assert.Equal(4, details.Runs.Count); Assert.All(details.Runs, run => Assert.Equal(Buildra.Domain.Agents.AgentRunStatus.Completed, run.Status));
         Assert.All(details.Runs, run => { Assert.True(run.Step > 0); Assert.NotNull(run.UpdatedAt); Assert.Equal("Finished", run.Activity); });
         Assert.Contains(details.Tools, tool => tool.Tool == "runTests" && tool.Succeeded);
+        Assert.Contains(details.Tools, tool => tool.Tool == "editFile" && tool.Succeeded);
         Assert.Equal(mainBefore, await repo.Git.GitAsync(repo.Remote, default, "rev-parse", "refs/heads/main"));
         Assert.False(File.Exists(Path.Combine(repo.Seed, "sum.js")));
         Assert.NotEmpty(await repo.Git.GitAsync(repo.Remote, default, "rev-parse", "refs/heads/" + details.Task.Branch));

@@ -59,10 +59,24 @@ public sealed class WorkspaceFiles
             try { using var json = System.Text.Json.JsonDocument.Parse(content); if (json.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) throw new System.Text.Json.JsonException(); }
             catch (System.Text.Json.JsonException) { throw new ExecutionException("package.json must be a valid JSON object with no comments or Markdown. Correct the content and retry the file action."); }
         }
+        if (File.Exists(full) && File.ReadAllText(full) == content) throw new ExecutionException("The file already contains this exact content. No change was made; choose a different action.");
         Directory.CreateDirectory(Path.GetDirectoryName(full)!); File.WriteAllText(full, content);
     }
     public void Delete(string root, string path)
     {
         var full = Resolve(root, path); if (Directory.Exists(full)) throw new ExecutionException("Only individual files can be deleted."); File.Delete(full);
+    }
+    public void Edit(string root, string path, string oldText, string newText)
+    {
+        if (string.IsNullOrEmpty(oldText) || oldText == newText || oldText.Length > 12000 || newText.Length > 12000)
+            throw new ExecutionException("Provide a nonempty exact old snippet and a replacement, each at most 12000 characters.");
+        var full = Resolve(root, path);
+        if (!File.Exists(full)) throw new ExecutionException("Read the existing file before editing it.");
+        if (new FileInfo(full).Length > 256000) throw new ExecutionException("The file exceeds the agent edit limit.");
+        var text = File.ReadAllText(full);
+        var start = text.IndexOf(oldText, StringComparison.Ordinal);
+        if (start < 0 || text.IndexOf(oldText, start + 1, StringComparison.Ordinal) >= 0)
+            throw new ExecutionException("The old snippet must match exactly once. Read the file and include more surrounding context.");
+        Write(root, path, text[..start] + newText + text[(start + oldText.Length)..]);
     }
 }
