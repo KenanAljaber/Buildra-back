@@ -65,6 +65,14 @@ public sealed class GitWorkspace(BoundedProcess process, IOptions<GitHubOptions>
         return result.Output;
     }
     public Task<string> DiffAsync(TaskWorkspace workspace, CancellationToken ct) => GitAsync(workspace.SourceDirectory, ct, "diff", "--no-ext-diff", "--no-textconv", workspace.BaseCommit, "--", ".");
+    public async Task RequireCurrentBaseAsync(TaskWorkspace workspace, string baseBranch, CancellationToken ct)
+    {
+        await GitAsync(workspace.SourceDirectory, ct, "fetch", "--no-tags", "origin", "refs/heads/" + baseBranch);
+        var latest = (await GitAsync(workspace.SourceDirectory, ct, "rev-parse", "FETCH_HEAD")).Trim();
+        var common = (await GitAsync(workspace.SourceDirectory, ct, "merge-base", "HEAD", latest)).Trim();
+        if (common != latest)
+            throw new SourceControlException("The base branch advanced beyond this implementation. Integrate the latest base branch, rerun tests, and obtain a new review before publishing. The task workspace is preserved.");
+    }
     public async Task<string> CommitAsync(TaskWorkspace workspace, string title, CancellationToken ct)
     {
         await GitAsync(workspace.SourceDirectory, ct, "add", "--", ".");

@@ -209,6 +209,32 @@ public sealed partial class PlanningPostgresTests
         }
     }
 
+    [Fact]
+    public async Task PublishingRejectsAdvancedBaseBeforePushOrPullRequest()
+    {
+        await using var repo = new LocalRepository(); await repo.InitializeAsync();
+        var task = new DevelopmentTask { Title = "Task change" };
+        var project = new Project { Name = "Test", RepositoryUrl = "https://github.com/test/repo.git", DefaultBranch = "main" };
+        using var handler = new GitHubHandler(false); using var http = new HttpClient(handler);
+        var source = new GitHubSourceControlProvider(http, new TestCredential(), repo.Git);
+        var workspace = await repo.Git.PrepareAsync(repo.Remote, "main", task.Id, default);
+        using (workspace.Lock)
+        {
+            await File.WriteAllTextAsync(Path.Combine(workspace.SourceDirectory, "package.json"), "{\"type\":\"module\"}");
+            task.Commit = await repo.Git.CommitAsync(workspace, task.Title, default); task.Branch = workspace.Branch;
+            await File.WriteAllTextAsync(Path.Combine(repo.Seed, "package.json"), "{\"type\":\"commonjs\"}");
+            await repo.Git.GitAsync(repo.Seed, default, "add", "package.json");
+            await repo.Git.GitAsync(repo.Seed, default, "-c", "user.name=Test", "-c", "user.email=test@localhost", "commit", "-m", "Advance main");
+            await repo.Git.GitAsync(repo.Seed, default, "push", "origin", "main");
+            var error = await Assert.ThrowsAsync<SourceControlException>(() => source.PublishAsync(project, task, workspace, "Reviewed", default));
+            Assert.Contains("base branch advanced", error.Message);
+            Assert.Equal(0, handler.Posts);
+            Assert.Equal("", (await repo.Git.GitAsync(repo.Remote, default, "for-each-ref", "--format=%(refname)", "refs/heads/" + workspace.Branch)).Trim());
+            Assert.Equal(task.Commit, (await repo.Git.GitAsync(workspace.SourceDirectory, default, "rev-parse", "HEAD")).Trim());
+            Assert.Equal("", (await repo.Git.GitAsync(workspace.SourceDirectory, default, "status", "--porcelain")).Trim());
+        }
+    }
+
     [DockerPostgreSqlFact]
     public async Task DeveloperReviewerRevisionCreatesCommitAndKeepsMainUntouched()
     {

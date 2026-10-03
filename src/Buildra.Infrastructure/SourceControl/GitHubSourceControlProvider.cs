@@ -53,6 +53,7 @@ public sealed class GitHubSourceControlProvider(HttpClient http, IGitHubCredenti
         if (!string.IsNullOrWhiteSpace(await git.GitAsync(workspace.SourceDirectory, ct, "status", "--porcelain")) ||
             (await git.GitAsync(workspace.SourceDirectory, ct, "rev-parse", "HEAD")).Trim() != task.Commit)
             throw new SourceControlException("The workspace changed after review. Inspect and retry before publishing.");
+        await git.RequireCurrentBaseAsync(workspace, project.DefaultBranch, ct);
         await git.GitAsync(workspace.SourceDirectory, ct, "push", "origin", "HEAD:refs/heads/" + workspace.Branch);
         var owner = repository.Split('/')[0];
         using var existing = await SendAsync(HttpMethod.Get, "repos/" + repository + "/pulls?state=open&head=" + Uri.EscapeDataString(owner + ":" + workspace.Branch) + "&base=" + Uri.EscapeDataString(project.DefaultBranch), null, ct);
